@@ -1,0 +1,5 @@
+backend/venv/
+backend/output_midi/
+__pycache__/
+*.pyc
+.idea/
