@@ -1,0 +1,10 @@
+flask
+flask-cors
+demucs
+basic-pitch
+yt-dlp
+numpy
+librosa
+soundfile
+scipy
+pretty_midi
