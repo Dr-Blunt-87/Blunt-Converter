@@ -1,5 +1,0 @@
-flask
-flask-cors
-demucs
-basic-pitch
-yt-dlp
