@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<title>Blunt Converter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  body { font-family: system-ui, sans-serif; background:#f3f4f6; margin:0; padding:20px; }
+  .wrap { max-width:680px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:12px; }
+  .logo { width:48px; height:48px; border-radius:12px; background:#16a34a; color:#fff;
+          display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; }
+  h1 { color:#16a34a; margin:0; font-size:22px; }
+  .sub { margin-left:auto; color:#6b7280; font-size:13px; }
+  main { margin-top:16px; background:#fff; padding:20px; border-radius:14px;
+         box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+  section { margin-bottom:18px; }
+  label.title { display:block; margin-bottom:8px; font-weight:600; font-size:14px; color:#374151; }
+  .tabs { display:flex; gap:8px; margin-bottom:12px; }
+  .tab { flex:1; text-align:center; padding:8px; border:1px solid #e5e7eb; border-radius:8px;
+         cursor:pointer; font-size:13px; font-weight:600; color:#6b7280; }
+  .tab.active { border-color:#16a34a; background:#f0fdf4; color:#16a34a; }
+  input[type=file], input[type=url], select { width:100%; box-sizing:border-box; padding:8px 10px;
+         border:1px solid #e5e7eb; border-radius:8px; font-size:14px; }
+  .stem-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  .stem-grid label { display:flex; align-items:center; gap:6px; font-size:14px; color:#374151;
+         padding:8px; border:1px solid #e5e7eb; border-radius:8px; cursor:pointer; }
+  .radios { display:flex; gap:8px; }
+  .radios label { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+         padding:8px; border:1px solid #e5e7eb; border-radius:8px; cursor:pointer; font-size:14px; }
+  .radios label:has(input:checked) { border-color:#16a34a; background:#f0fdf4; color:#16a34a; font-weight:600; }
+  button.primary { background:#16a34a; color:#fff; border:none; padding:10px 18px; border-radius:8px;
+         font-weight:600; cursor:pointer; font-size:14px; width:100%; }
+  button.primary:disabled { background:#9ca3af; cursor:not-allowed; }
+  .status { margin-top:16px; padding:12px; background:#f9fafb; border-radius:8px; font-size:14px; color:#374151; }
+  .status strong { display:block; margin-bottom:4px; }
+  .results { margin-top:16px; }
+  .file-row { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:6px;
+         background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; cursor:grab; font-size:14px; }
+  .file-row:active { cursor:grabbing; }
+  .file-row .icon { font-size:18px; }
+  .file-row .name { flex:1; font-weight:600; color:#166534; }
+  .file-row a { color:#16a34a; font-size:13px; text-decoration:none; }
+  .hint { font-size:12px; color:#6b7280; margin-top:8px; }
+  .zip-btn { margin-top:10px; background:#f3f4f6; border:1px solid #e5e7eb; padding:8px 14px;
+         border-radius:8px; font-size:13px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">B</div>
+    <h1>Blunt Converter</h1>
+    <div class="sub">Video/Ljud/YouTube &rarr; MIDI eller Stems</div>
+  </header>
+
+  <main>
+    <section>
+      <label class="title">Källa</label>
+      <div class="tabs">
+        <div class="tab active" id="tabFile">Fil</div>
+        <div class="tab" id="tabYoutube">YouTube-länk</div>
+      </div>
+      <div id="fileInputWrap">
+        <input type="file" id="fileInput" accept=".mp4,.mp3,.wav,video/*,audio/*" />
+      </div>
+      <div id="youtubeInputWrap" style="display:none;">
+        <input type="url" id="youtubeInput" placeholder="https://www.youtube.com/watch?v=..." />
+      </div>
+    </section>
+
+    <section>
+      <label class="title">Vad vill du ha ut?</label>
+      <div class="radios">
+        <label><input type="radio" name="outputMode" value="midi" checked /><span>MIDI-noter</span></label>
+        <label><input type="radio" name="outputMode" value="stems" /><span>Ljud-stems</span></label>
+      </div>
+    </section>
+
+    <section id="formatSection" style="display:none;">
+      <label class="title">Ljudformat</label>
+      <select id="audioFormat">
+        <option value="wav">WAV</option>
+        <option value="mp3">MP3</option>
+      </select>
+    </section>
+
+    <section>
+      <label class="title">Välj instrument/stems</label>
+      <div class="stem-grid">
+        <label><input type="checkbox" class="stemBox" value="bass" checked /> Bas</label>
+        <label><input type="checkbox" class="stemBox" value="drums" checked /> Trummor</label>
+        <label><input type="checkbox" class="stemBox" value="guitar" checked /> Gitarr</label>
+        <label><input type="checkbox" class="stemBox" value="piano" checked /> Piano</label>
+        <label><input type="checkbox" class="stemBox" value="vocals" checked /> Vokaler</label>
+        <label><input type="checkbox" class="stemBox" value="other" checked /> Övrigt</label>
+      </div>
+    </section>
+
+    <section>
+      <button class="primary" id="startBtn">Starta konvertering</button>
+    </section>
+
+    <div class="status">
+      <strong>Status:</strong>
+      <span id="statusText">Väntar på input...</span>
+    </div>
+
+    <div class="results" id="resultsWrap" style="display:none;">
+      <label class="title">Resultat — dra filerna direkt in i din DAW</label>
+      <div id="fileList"></div>
+      <button class="zip-btn" id="zipBtn">Ladda ner allt som ZIP</button>
+      <div class="hint">Dra-och-släpp direkt till DAW funkar i Chrome/Edge. I andra webbläsare, använd nedladdningslänken på varje rad.</div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const BACKEND_URL = 'http://127.0.0.1:5000';
+
+  const tabFile = document.getElementById('tabFile');
+  const tabYoutube = document.getElementById('tabYoutube');
+  const fileInputWrap = document.getElementById('fileInputWrap');
+  const youtubeInputWrap = document.getElementById('youtubeInputWrap');
+  const fileInput = document.getElementById('fileInput');
+  const youtubeInput = document.getElementById('youtubeInput');
+  const startBtn = document.getElementById('startBtn');
+  const statusText = document.getElementById('statusText');
+  const formatSection = document.getElementById('formatSection');
+  const audioFormat = document.getElementById('audioFormat');
+  const resultsWrap = document.getElementById('resultsWrap');
+  const fileList = document.getElementById('fileList');
+  const zipBtn = document.getElementById('zipBtn');
+
+  let sourceMode = 'file';
+  let lastFolder = null;
+
+  tabFile.addEventListener('click', () => {
+    sourceMode = 'file';
+    tabFile.classList.add('active');
+    tabYoutube.classList.remove('active');
+    fileInputWrap.style.display = 'block';
+    youtubeInputWrap.style.display = 'none';
+  });
+
+  tabYoutube.addEventListener('click', () => {
+    sourceMode = 'youtube';
+    tabYoutube.classList.add('active');
+    tabFile.classList.remove('active');
+    fileInputWrap.style.display = 'none';
+    youtubeInputWrap.style.display = 'block';
+  });
+
+  document.querySelectorAll('input[name=outputMode]').forEach(r => {
+    r.addEventListener('change', () => {
+      const mode = document.querySelector('input[name=outputMode]:checked').value;
+      formatSection.style.display = mode === 'stems' ? 'block' : 'none';
+    });
+  });
+
+  function selectedStems() {
+    return Array.from(document.querySelectorAll('.stemBox'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+  }
+
+  function iconFor(filename) {
+    if (filename.endsWith('.mid')) return '🎹';
+    if (filename.endsWith('.mp3') || filename.endsWith('.wav')) return '🎵';
+    return '📄';
+  }
+
+  function renderResults(folder, files) {
+    lastFolder = folder;
+    fileList.innerHTML = '';
+    files.forEach(name => {
+      const url = `${BACKEND_URL}/files/${folder}/${encodeURIComponent(name)}`;
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.draggable = true;
+      row.innerHTML = `<span class="icon">${iconFor(name)}</span><span class="name">${name}</span><a href="${url}" download="${name}">Ladda ner</a>`;
+
+      row.addEventListener('dragstart', (e) => {
+        const mime = name.endsWith('.mid') ? 'audio/midi' : (name.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav');
+        e.dataTransfer.setData('DownloadURL', `${mime}:${name}:${url}`);
+      });
+
+      fileList.appendChild(row);
+    });
+    resultsWrap.style.display = 'block';
+  }
+
+  zipBtn.addEventListener('click', () => {
+    if (!lastFolder) return;
+    window.location.href = `${BACKEND_URL}/download-zip/${lastFolder}`;
+  });
+
+  startBtn.addEventListener('click', async () => {
+    const outputMode = document.querySelector('input[name=outputMode]:checked').value;
+    const stems = selectedStems();
+
+    if (stems.length === 0) {
+      statusText.textContent = 'Välj minst ett instrument/stem.';
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('output_mode', outputMode);
+    fd.append('audio_format', audioFormat.value);
+    fd.append('selected_stems', stems.join(','));
+
+    if (sourceMode === 'file') {
+      const file = fileInput.files[0];
+      if (!file) {
+        statusText.textContent = 'Välj först en fil att konvertera.';
+        return;
+      }
+      fd.append('file', file);
+    } else {
+      const url = youtubeInput.value.trim();
+      if (!url) {
+        statusText.textContent = 'Klistra in en YouTube-länk.';
+        return;
+      }
+      fd.append('youtube_url', url);
+    }
+
+    startBtn.disabled = true;
+    resultsWrap.style.display = 'none';
+    statusText.textContent = 'Skickar till backend, separerar stems och konverterar... Detta kan ta flera minuter beroende på källa och längd.';
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        statusText.textContent = 'Fel: ' + (data.error || res.statusText);
+        startBtn.disabled = false;
+        return;
+      }
+      statusText.textContent = `Klart! ${data.files.length} fil(er) redo.`;
+      renderResults(data.folder, data.files);
+    } catch (e) {
+      statusText.textContent = 'Kunde inte nå backend på ' + BACKEND_URL + '. Kör den? (' + e.message + ')';
+    } finally {
+      startBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
