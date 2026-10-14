@@ -9,6 +9,10 @@ Exempel (kör efter cluster_stems_clap.py):
   NN+NN=namn   summerar spåren (numren från filnamnen, t.ex. cluster_10_...wav)
                och skriver dem som ett nytt spår med det namnet
   --drop NN    lämnar bort spåret
+  --separate A,B --power P
+               skärper separationen mellan två sammanslagna spår (namnen efter =)
+               med en spektral mask, t.ex. --separate lead-vocal,kor --power 6
+               så att kvarvarande lead dras bort ur kören (och tvärtom)
   Spår som inte nämns kopieras som de är.
 
 Resultatet hamnar i <mapp>/final/ (originalen rörs inte).
@@ -35,11 +39,33 @@ def find_tracks(folder):
     return tracks
 
 
+def separate_pair(a, b, sr, power):
+    """Spektral mask mellan två spår: varje tidsfrekvens-ruta går mest till det spår som är starkast där."""
+    from scipy.signal import stft, istft
+    n = max(len(a), len(b))
+    a = np.pad(a, ((0, n - len(a)), (0, 0)))
+    b = np.pad(b, ((0, n - len(b)), (0, 0)))
+    out_a, out_b = np.zeros_like(a), np.zeros_like(b)
+    for ch in range(a.shape[1]):
+        _, _, A = stft(a[:, ch], sr, nperseg=4096, noverlap=3072)
+        _, _, B = stft(b[:, ch], sr, nperseg=4096, noverlap=3072)
+        pa = np.abs(A) ** power
+        pb = np.abs(B) ** power
+        ma = pa / (pa + pb + 1e-20)
+        _, ya = istft(A * ma, sr, nperseg=4096, noverlap=3072)
+        _, yb = istft(B * (1 - ma), sr, nperseg=4096, noverlap=3072)
+        out_a[:, ch] = np.pad(ya, (0, max(0, n - len(ya))))[:n]
+        out_b[:, ch] = np.pad(yb, (0, max(0, n - len(yb))))[:n]
+    return out_a, out_b
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('folder')
     ap.add_argument('merges', nargs='*', help='t.ex. 10+17=tjejkor')
     ap.add_argument('--drop', default='', help='kommaseparerade nummer att lämna bort')
+    ap.add_argument('--separate', default='', help='två namn, t.ex. lead-vocal,kor')
+    ap.add_argument('--power', type=float, default=6.0, help='maskens hårdhet (4-8)')
     args = ap.parse_args()
 
     folder = Path(args.folder)
@@ -90,6 +116,25 @@ def main():
             continue
         data, s = sf.read(p, dtype='float64', always_2d=True)
         results.append((p.name, data, s))
+
+    if args.separate:
+        names = [x.strip() for x in args.separate.split(',')]
+        if len(names) != 2:
+            print('--separate ska vara två namn, t.ex. lead-vocal,kor')
+            sys.exit(1)
+        idx = []
+        for nm in names:
+            hit = [k for k, (f, _, _) in enumerate(results) if f.endswith('_' + nm + '.wav')]
+            if not hit:
+                print(f'Hittar inget sammanslaget spår som heter {nm}. Finns: '
+                      + ', '.join(f for f, _, _ in results))
+                sys.exit(1)
+            idx.append(hit[0])
+        (fa, da, sra), (fb, db_, srb) = results[idx[0]], results[idx[1]]
+        print(f'Skärper separationen mellan {names[0]} och {names[1]} (mask-power {args.power:g})...')
+        na, nb = separate_pair(da, db_, sra, args.power)
+        results[idx[0]] = (fa, na, sra)
+        results[idx[1]] = (fb, nb, srb)
 
     peak = max(float(np.max(np.abs(d))) for _, d, _ in results)
     scale = 1.0 if peak <= 0.99 else 0.99 / peak
