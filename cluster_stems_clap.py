@@ -268,10 +268,57 @@ def normalize_rows(a):
 _clap = None
 
 
+def ensure_torchaudio():
+    """Om torchaudio inte går att ladda (t.ex. CUDA-version matchar inte torch)
+    läggs en minimal ersättare in. CLAP använder bara torchaudio.load och Resample."""
+    try:
+        import torchaudio  # noqa: F401
+        return
+    except Exception as e:
+        print('(torchaudio går inte att ladda: %s - använder inbyggd ersättare)' % str(e).split('.')[0][:90])
+    import types
+    import importlib.machinery
+    import numpy as _np
+    import torch as _torch
+    try:
+        import transformers  # noqa: F401  (måste in medan riktiga torchaudio fortfarande syns)
+    except Exception:
+        pass
+    import soundfile as _sf
+    from math import gcd as _gcd
+
+    def _load(path, *a, **k):
+        data, sr = _sf.read(path, dtype='float32', always_2d=True)
+        return _torch.from_numpy(_np.ascontiguousarray(data.T)), sr
+
+    class _Resample:
+        def __init__(self, orig_freq, new_freq, *a, **k):
+            self.o, self.n = int(orig_freq), int(new_freq)
+
+        def __call__(self, x):
+            from scipy.signal import resample_poly
+            g = _gcd(self.o, self.n)
+            y = resample_poly(x.detach().cpu().numpy(), self.n // g, self.o // g, axis=-1)
+            return _torch.from_numpy(_np.ascontiguousarray(y.astype('float32')))
+
+    ta = types.ModuleType('torchaudio')
+    tr = types.ModuleType('torchaudio.transforms')
+    ta.load = _load
+    tr.Resample = _Resample
+    ta.transforms = tr
+    ta.__version__ = '0.0-shim'
+    ta.__spec__ = importlib.machinery.ModuleSpec('torchaudio', None, is_package=True)
+    ta.__path__ = []
+    tr.__spec__ = importlib.machinery.ModuleSpec('torchaudio.transforms', None)
+    sys.modules['torchaudio'] = ta
+    sys.modules['torchaudio.transforms'] = tr
+
+
 def get_clap():
     """Laddar CLAP först när den behövs (så --scan och omkörningar från cache går fort)."""
     global _clap
     if _clap is None:
+        ensure_torchaudio()
         try:
             from msclap import CLAP
         except ImportError:
