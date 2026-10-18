@@ -22,9 +22,11 @@ ap = argparse.ArgumentParser()
 ap.add_argument("lead")
 ap.add_argument("snare")
 ap.add_argument("raw_snare")
-ap.add_argument("--mängd", type=float, default=1.0, help="0-1.5, hur mycket av slagen som flyttas")
+ap.add_argument("--mängd", type=float, default=0.8, help="0-1.5, hur mycket av slagen som flyttas")
 ap.add_argument("--före", type=float, default=0.015, help="sekunder före slaget")
-ap.add_argument("--efter", type=float, default=0.12, help="sekunder efter slaget")
+ap.add_argument("--efter", type=float, default=0.07, help="sekunder efter slaget")
+ap.add_argument("--delta", type=float, default=0.06, help="känslighet för slag (lägre = fler slag, rullar)")
+ap.add_argument("--vänta", type=float, default=0.025, help="minsta tid mellan slag i sekunder (rullar kräver lågt)")
 ap.add_argument("--ut", default=None)
 a = ap.parse_args()
 
@@ -41,7 +43,7 @@ lead, snare, raw = lead[:, :n], snare[:, :n], raw[:, :n]
 # 1. När slår snaren? onsets från det råa snare-stemmet
 env = librosa.onset.onset_strength(y=raw.mean(0), sr=sr, hop_length=HOP)
 on = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=HOP, backtrack=False,
-                                delta=0.15, wait=int(0.08 * sr / HOP))
+                                delta=a.delta, wait=max(1, int(a.vänta * sr / HOP)))
 times = librosa.frames_to_time(on, sr=sr, hop_length=HOP)
 print(f"{len(times)} snare-slag hittade")
 
