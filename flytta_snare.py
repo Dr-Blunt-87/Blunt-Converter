@@ -29,6 +29,7 @@ ap.add_argument("--delta", type=float, default=0.06, help="känslighet för slag
 ap.add_argument("--vänta", type=float, default=0.025, help="minsta tid mellan slag i sekunder (rullar kräver lågt)")
 ap.add_argument("--extra", nargs="*", default=[], help="fler stems att hitta slag i, t.ex. percussion.mp3 toms.mp3 (rim shots)")
 ap.add_argument("--låggräns", type=float, default=1500.0, help="Hz: under denna flyttas bara det som är tydligt slag")
+ap.add_argument("--höggräns", type=float, default=0.0, help="Hz: över denna flyttas ALLT vid varje slag (0 = av). Prova 2000.")
 ap.add_argument("--ut", default=None)
 a = ap.parse_args()
 
@@ -86,6 +87,9 @@ for ch in range(lead.shape[0]):
     blend = 1.0 / (1.0 + np.exp(-(freqs - a.låggräns) / 250.0))[:, None]   # 0 under gränsen, 1 över
     mp = blend * mp_hi + (1.0 - blend) * mp_lo
     mp = np.clip(mp * a.mängd, 0, 1)
+    if a.höggräns > 0:
+        hog = (1.0 / (1.0 + np.exp(-(freqs - a.höggräns) / 150.0)))[:, None]
+        mp = np.maximum(mp, hog)   # över gränsen: ta allt i slagfönstret
     w = win[: S.shape[1]]
     if len(w) < S.shape[1]:
         w = np.pad(w, (0, S.shape[1] - len(w)))
