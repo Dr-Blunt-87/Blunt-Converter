@@ -14,10 +14,11 @@ Valfritt:
   --power 3      hur skarpt en ruta tillhör ett spår (1 = väldigt mjukt, 2 = mjukt, 4 = hårt)
   --smooth-time 7  jämnar ut kartan över tid (antal rutor, ca 23 ms var). Minskar wah-wah/pumpning
   --smooth-freq 3  jämnar ut kartan över frekvens. Minskar bubblor
-  --nfft 4096    fönsterstorlek: 2048 = skarpare slag (trummor), 8192 = fylligare toner (bas, gitarr, sång)
+  --nfft 2048    fönsterstorlek: 2048 = skarpare slag (trummor), 8192 = fylligare toner (bas, gitarr, sång)
   --tag namn     sparar i  <mapp>_mix_<namn>  så att du kan jämföra flera varianter
   --keep-rest    sparar det som inget spår gör anspråk på som eget spår (rest.wav)
                  (annars fördelas det på spåren)
+  --boost snare=3,kick=2  förstärker spåret kort vid varje slag (hittas med onset), så snare/kick inte hamnar i sången
   --exclude 05   hoppar över spår vars filnamn börjar så (komma-separerat)
 Resultat hamnar i  <mapp>_mix/
 """
@@ -78,6 +79,25 @@ def spec(x, sr):
     return Z.astype(np.complex64)
 
 
+def onset_window(track_mono, sr, frame_times, pre=0.01, post=0.09):
+    """1 i tidsrutor strax efter varje slag i spåret (annars 0)."""
+    try:
+        import librosa
+        on = librosa.onset.onset_detect(y=track_mono.astype('float32'), sr=sr, units='time', backtrack=False)
+    except Exception as e:
+        print('  (onset-boost hoppas över:', e, ')')
+        return np.zeros(len(frame_times), dtype='float32')
+    w = np.zeros(len(frame_times), dtype='float32')
+    for t0 in on:
+        w[(frame_times >= t0 - pre) & (frame_times <= t0 + post)] = 1.0
+    return w
+
+
+def spec_t(x, sr):
+    f, tt, Z = stft(x, sr, nperseg=NPERSEG, noverlap=NOVERLAP)
+    return tt, Z.astype(np.complex64)
+
+
 def set_nfft(nfft):
     global NPERSEG, NOVERLAP
     NPERSEG = int(nfft)
@@ -91,13 +111,18 @@ def main():
     ap.add_argument('--power', type=float, default=3.0)
     ap.add_argument('--smooth-time', type=int, default=7)
     ap.add_argument('--smooth-freq', type=int, default=3)
-    ap.add_argument('--nfft', type=int, default=4096)
+    ap.add_argument('--nfft', type=int, default=2048)
     ap.add_argument('--tag', default='')
     ap.add_argument('--keep-rest', action='store_true')
     ap.add_argument('--exclude', default='')
+    ap.add_argument('--boost', default='')
     args = ap.parse_args()
 
     set_nfft(args.nfft)
+    boost = {}
+    for part in [x for x in args.boost.split(',') if x.strip()]:
+        k, _, v = part.partition('=')
+        boost[k.strip().lower()] = float(v or 3)
     folder = Path(args.folder)
     skip = [s.strip().lower() for s in args.exclude.split(',') if s.strip()]
     files = [p for p in sorted(folder.glob('*.wav'))
@@ -144,20 +169,24 @@ def main():
         mags = []
         total = np.zeros(X.shape, dtype='float32')
         S_sum = np.zeros(X.shape, dtype=np.complex64)
-        for t in tracks:
-            S = spec(t[:, ch], sr)
+        for ti, t in enumerate(tracks):
+            ftimes, S = spec_t(t[:, ch], sr)
             S_sum += S
             m = np.abs(S) / ref
             if sm != (1, 1):
                 m = uniform_filter(m, size=sm)
-            m = m ** args.power
+            f = next((v for k, v in boost.items() if k in files[ti].name.lower()), 1.0)
+            if f != 1.0:
+                w = onset_window(t[:, ch], sr, ftimes)
+                m = m * (1.0 + (f - 1.0) * w[None, :]).astype('float32')
+            m = np.maximum(m, 0) ** args.power
             mags.append(m.astype('float32'))
             total += mags[-1]
         R = X - S_sum
         rest_m = np.abs(R) / ref
         if sm != (1, 1):
             rest_m = uniform_filter(rest_m, size=sm)
-        rest_m = (rest_m ** args.power).astype('float32')
+        rest_m = (np.maximum(rest_m, 0) ** args.power).astype('float32')
         if args.keep_rest:
             denom = total + rest_m + eps
         else:
