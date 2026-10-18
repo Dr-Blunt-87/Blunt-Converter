@@ -9,7 +9,7 @@ Exempel (kör efter cluster_stems_clap.py):
   NN+NN=namn   summerar spåren (numren från filnamnen, t.ex. cluster_10_...wav)
                och skriver dem som ett nytt spår med det namnet
   --drop NN    lämnar bort spåret
-  --separate A,B --power P
+  --separate A,B[;C,D] --power P
                skärper separationen mellan två sammanslagna spår (namnen efter =)
                med en spektral mask, t.ex. --separate lead-vocal,kor --power 6
                så att kvarvarande lead dras bort ur kören (och tvärtom)
@@ -118,23 +118,25 @@ def main():
         results.append((p.name, data, s))
 
     if args.separate:
-        names = [x.strip() for x in args.separate.split(',')]
-        if len(names) != 2:
-            print('--separate ska vara två namn, t.ex. lead-vocal,kor')
-            sys.exit(1)
-        idx = []
-        for nm in names:
-            hit = [k for k, (f, _, _) in enumerate(results) if f.endswith('_' + nm + '.wav')]
-            if not hit:
-                print(f'Hittar inget sammanslaget spår som heter {nm}. Finns: '
-                      + ', '.join(f for f, _, _ in results))
+        # flera par kan skrivas med semikolon:  "lead-vocal,back-vocal;lead-vocal,snare"
+        for pair in [x for x in args.separate.split(';') if x.strip()]:
+            names = [x.strip() for x in pair.split(',')]
+            if len(names) != 2:
+                print('--separate ska vara två namn per par, t.ex. lead-vocal,kor')
                 sys.exit(1)
-            idx.append(hit[0])
-        (fa, da, sra), (fb, db_, srb) = results[idx[0]], results[idx[1]]
-        print(f'Skärper separationen mellan {names[0]} och {names[1]} (mask-power {args.power:g})...')
-        na, nb = separate_pair(da, db_, sra, args.power)
-        results[idx[0]] = (fa, na, sra)
-        results[idx[1]] = (fb, nb, srb)
+            idx = []
+            for nm in names:
+                hit = [k for k, (f, _, _) in enumerate(results) if f.endswith('_' + nm + '.wav')]
+                if not hit:
+                    print(f'Hittar inget spår som heter {nm}. Finns: '
+                          + ', '.join(f for f, _, _ in results))
+                    sys.exit(1)
+                idx.append(hit[0])
+            (fa, da, sra), (fb, db_, srb) = results[idx[0]], results[idx[1]]
+            print(f'Skärper separationen mellan {names[0]} och {names[1]} (mask-power {args.power:g})...')
+            na, nb = separate_pair(da, db_, sra, args.power)
+            results[idx[0]] = (fa, na, sra)
+            results[idx[1]] = (fb, nb, srb)
 
     peak = max(float(np.max(np.abs(d))) for _, d, _ in results)
     scale = 1.0 if peak <= 0.99 else 0.99 / peak
