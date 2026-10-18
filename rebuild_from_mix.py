@@ -11,8 +11,9 @@ Exempel:
   python rebuild_from_mix.py "C:\\...\\Richie Spice - Ghetto Girl.mp3" "C:\\...\\clusters\\final"
 
 Valfritt:
-  --power 2      hur skarpt en ruta tillhör ett spår (1 = väldigt mjukt, 2 = bra, 4 = hårt)
-  --smooth 3     jämnar ut kartan över tid och frekvens (1 = av). Minskar "bubblor"
+  --power 3      hur skarpt en ruta tillhör ett spår (1 = väldigt mjukt, 2 = mjukt, 4 = hårt)
+  --smooth-time 7  jämnar ut kartan över tid (antal rutor, ca 23 ms var). Minskar wah-wah/pumpning
+  --smooth-freq 3  jämnar ut kartan över frekvens. Minskar bubblor
   --keep-rest    sparar det som inget spår gör anspråk på som eget spår (rest.wav)
                  (annars fördelas det på spåren)
   --exclude 05   hoppar över spår vars filnamn börjar så (komma-separerat)
@@ -79,8 +80,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('original')
     ap.add_argument('folder')
-    ap.add_argument('--power', type=float, default=2.0)
-    ap.add_argument('--smooth', type=int, default=3)
+    ap.add_argument('--power', type=float, default=3.0)
+    ap.add_argument('--smooth-time', type=int, default=7)
+    ap.add_argument('--smooth-freq', type=int, default=3)
     ap.add_argument('--keep-rest', action='store_true')
     ap.add_argument('--exclude', default='')
     args = ap.parse_args()
@@ -97,7 +99,9 @@ def main():
     orig, sr = load_audio(args.original)
     orig = to_stereo(orig)
     n = len(orig)
-    print(f'Original: {n / sr:.1f} s. Spår: {len(files)}. mask-power {args.power:g}, utjämning {args.smooth}')
+    sm = (max(1, args.smooth_freq), max(1, args.smooth_time))   # (frekvens, tid)
+    print(f'Original: {n / sr:.1f} s. Spår: {len(files)}. mask-power {args.power:g}, '
+          f'utjämning tid {sm[1]} / frekvens {sm[0]}')
 
     tracks = []
     for p in files:
@@ -121,26 +125,27 @@ def main():
 
     out = [np.zeros((n, 2), dtype='float32') for _ in tracks]
     rest_out = np.zeros((n, 2), dtype='float32')
-    eps = 1e-12
+    eps = 1e-30
     for ch in range(2):
         print(f'Kanal {ch + 1}/2: räknar...')
         X = spec(orig[:, ch], sr)
+        ref = float(np.percentile(np.abs(X), 99.9)) or 1.0
         mags = []
         total = np.zeros(X.shape, dtype='float32')
         S_sum = np.zeros(X.shape, dtype=np.complex64)
         for t in tracks:
             S = spec(t[:, ch], sr)
             S_sum += S
-            m = np.abs(S)
-            if args.smooth > 1:
-                m = uniform_filter(m, size=(args.smooth, args.smooth))
+            m = np.abs(S) / ref
+            if sm != (1, 1):
+                m = uniform_filter(m, size=sm)
             m = m ** args.power
             mags.append(m.astype('float32'))
             total += mags[-1]
         R = X - S_sum
-        rest_m = np.abs(R)
-        if args.smooth > 1:
-            rest_m = uniform_filter(rest_m, size=(args.smooth, args.smooth))
+        rest_m = np.abs(R) / ref
+        if sm != (1, 1):
+            rest_m = uniform_filter(rest_m, size=sm)
         rest_m = (rest_m ** args.power).astype('float32')
         if args.keep_rest:
             denom = total + rest_m + eps
