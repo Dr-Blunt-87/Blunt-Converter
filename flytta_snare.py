@@ -27,6 +27,8 @@ ap.add_argument("--före", type=float, default=0.015, help="sekunder före slage
 ap.add_argument("--efter", type=float, default=0.07, help="sekunder efter slaget")
 ap.add_argument("--delta", type=float, default=0.06, help="känslighet för slag (lägre = fler slag, rullar)")
 ap.add_argument("--vänta", type=float, default=0.025, help="minsta tid mellan slag i sekunder (rullar kräver lågt)")
+ap.add_argument("--extra", nargs="*", default=[], help="fler stems att hitta slag i, t.ex. percussion.mp3 toms.mp3 (rim shots)")
+ap.add_argument("--låggräns", type=float, default=1500.0, help="Hz: under denna flyttas bara det som är tydligt slag")
 ap.add_argument("--ut", default=None)
 a = ap.parse_args()
 
@@ -40,12 +42,26 @@ if lead.ndim == 1:
 n = min(lead.shape[1], snare.shape[1], raw.shape[1])
 lead, snare, raw = lead[:, :n], snare[:, :n], raw[:, :n]
 
-# 1. När slår snaren? onsets från det råa snare-stemmet
-env = librosa.onset.onset_strength(y=raw.mean(0), sr=sr, hop_length=HOP)
+# 1. När slår snaren (och rim shots)? onsets från snare-stemmet + extra stems
+def onset_env(x):
+    e = librosa.onset.onset_strength(y=x.mean(0), sr=sr, hop_length=HOP)
+    return e / (e.max() + 1e-9)
+
+envs = [onset_env(raw)]
+for fn in a.extra:
+    x, sx = librosa.load(fn, sr=None, mono=False)
+    if x.ndim == 1:
+        x = x[None]
+    x = x[:, :n]
+    if x.shape[1] < n:
+        x = np.pad(x, ((0, 0), (0, n - x.shape[1])))
+    envs.append(onset_env(x))
+m = min(len(e) for e in envs)
+env = np.max([e[:m] for e in envs], axis=0)
 on = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=HOP, backtrack=False,
                                 delta=a.delta, wait=max(1, int(a.vänta * sr / HOP)))
 times = librosa.frames_to_time(on, sr=sr, hop_length=HOP)
-print(f"{len(times)} snare-slag hittade")
+print(f"{len(times)} slag hittade (snare{' + ' + str(len(a.extra)) + ' extra' if a.extra else ''})")
 
 frames = 1 + n // HOP
 win = np.zeros(frames, dtype=np.float32)
@@ -64,7 +80,11 @@ for ch in range(lead.shape[0]):
     mag = np.abs(S)
     H = median_filter(mag, size=(1, 17))   # tonande: lång i tid
     P = median_filter(mag, size=(17, 1))   # slag: lång i frekvens
-    mp = P ** 2 / (H ** 2 + P ** 2 + 1e-10)
+    mp_hi = P ** 2 / (H ** 2 + P ** 2 + 1e-10)                 # mjuk mask (höga frekvenser)
+    mp_lo = np.clip((P - 3.0 * H) / (P + 1e-10), 0, 1)       # sträng mask: bara tydliga slag
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=NFFT)
+    blend = 1.0 / (1.0 + np.exp(-(freqs - a.låggräns) / 250.0))[:, None]   # 0 under gränsen, 1 över
+    mp = blend * mp_hi + (1.0 - blend) * mp_lo
     mp = np.clip(mp * a.mängd, 0, 1)
     w = win[: S.shape[1]]
     if len(w) < S.shape[1]:
