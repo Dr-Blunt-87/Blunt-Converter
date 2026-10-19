@@ -18,6 +18,8 @@ from flask_cors import CORS
 import subprocess
 import uuid
 import shutil
+import sys
+import importlib.util
 import zipfile
 import tempfile
 import threading
@@ -350,6 +352,8 @@ def health():
     tools = {}
     for tool in ['ffmpeg', 'demucs', 'basic-pitch', 'yt-dlp']:
         tools[tool] = shutil.which(tool) is not None
+    if not tools['yt-dlp']:
+        tools['yt-dlp'] = importlib.util.find_spec('yt_dlp') is not None   # python -m yt_dlp
     return jsonify({'status': 'ok', 'tools_found': tools})
 
 
@@ -367,11 +371,11 @@ def run_conversion(task_id, youtube_url, file_bytes, file_name, output_modes, au
             if is_original_only:
                 # "Bara hela låten": be yt-dlp hämta direkt i RÄTT format på en gång,
                 # istället för att alltid gå via WAV och konvertera en gång till efteråt.
-                run_cmd(['yt-dlp', '--no-playlist', '-x', '--audio-format', audio_format,
+                run_cmd([sys.executable, '-m', 'yt_dlp', '--no-playlist', '-x', '--audio-format', audio_format,
                           '-o', str(saved_stub) + '.%(ext)s', youtube_url])
             else:
                 # Stems/MIDI-läge kräver WAV som indata till Demucs, så vi hämtar WAV som vanligt.
-                run_cmd(['yt-dlp', '--no-playlist', '-x', '--audio-format', 'wav',
+                run_cmd([sys.executable, '-m', 'yt_dlp', '--no-playlist', '-x', '--audio-format', 'wav',
                           '-o', str(saved_stub) + '.%(ext)s', youtube_url])
 
             candidates = list(workdir.glob(f'{base_name}.*'))
