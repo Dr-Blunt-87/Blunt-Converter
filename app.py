@@ -117,7 +117,9 @@ CHORD_COMPRESS = 20.0                        # logg-komprimering av tonklasserna
 CHORD_LOOP = 0.85                            # hur trögt ackord byts (högre = färre byten)
 CHORD_MIX_LOW_HZ = 120.0                     # vid analys av hela mixen: klipp bort bas/kick
 CHORD_KEY_BONUS = 0.03                       # liten fördel för ackord som hör till tonarten
-CHORD_SEVENTH_COST = 0.08                    # 7-ackord väljs bara när sjundetonen hörs tydligt
+CHORD_N_PENALTY = 0.35                       # ju högre, desto svårare att välja "inget ackord"
+CHORD_N_MIN_QUIET = 2.0                      # "inget ackord" via tystnad kräver minst så här många sekunder
+CHORD_SEVENTH_COST = 0.15                    # 7-ackord väljs bara när sjundetonen hörs tydligt
 CHORD_SCALE_MARGIN = 0.06                    # hur mycket bättre en särskild skala måste vara än dur/moll
 CHORD_INTERVALS = {'': [0, 4, 7], 'm': [0, 3, 7], 'dim': [0, 3, 6],
                    '7': [0, 4, 7, 10], 'maj7': [0, 4, 7, 11], 'm7': [0, 3, 7, 10], 'm7b5': [0, 3, 6, 10]}
@@ -229,7 +231,7 @@ def describe_key(tonic, mode, scale):
     return txt, cam, rel, flat
 
 
-def analyze_chords(chord_wavs, bass_wav=None, mix_wav=None, sevenths=True):
+def analyze_chords(chord_wavs, bass_wav=None, mix_wav=None, sevenths=False):
     """Returnerar dict (tempo, segments, källa, tonart, stämning) eller None om inget kunde analyseras."""
     source = 'stems'
     ys = [_chord_load(p) for p in chord_wavs if p and Path(p).exists()]
@@ -332,7 +334,7 @@ def analyze_chords(chord_wavs, bass_wav=None, mix_wav=None, sevenths=True):
             roots.append(r)
     labels.append('N')
     templ.append(np.ones(12) / np.sqrt(12))
-    pen.append(0.25)
+    pen.append(CHORD_N_PENALTY)
     roots.append(-1)
     Tm = np.array(templ)
     score = Tm @ cs - np.array(pen)[:, None]
@@ -344,7 +346,19 @@ def analyze_chords(chord_wavs, bass_wav=None, mix_wav=None, sevenths=True):
     energy = np.array([np.sum(chroma[:, s:e]) for s, e in zip(bf[:-1], bf[1:])] + [0.0])[:steps]
     if np.any(energy > 0):
         quiet = energy < 0.15 * np.median(energy[energy > 0])
-        score[-1, quiet] += 1.0
+        step_s = float(np.median(np.diff(btimes))) if len(btimes) > 1 else 0.3
+        min_steps = max(1, int(CHORD_N_MIN_QUIET / max(step_s, 0.05)))
+        i = 0
+        while i < len(quiet):                      # bara långa tystnader räknas som "inget ackord"
+            if quiet[i]:
+                j = i
+                while j < len(quiet) and quiet[j]:
+                    j += 1
+                if j - i >= min_steps:
+                    score[-1, i:j] += 1.0
+                i = j
+            else:
+                i += 1
 
     prob = np.exp(score * 8.0)
     prob = prob / prob.sum(axis=0, keepdims=True)
@@ -669,7 +683,7 @@ def health():
     return jsonify({'status': 'ok', 'tools_found': tools})
 
 
-def run_conversion(task_id, youtube_url, file_bytes, file_name, output_modes, audio_format, selected_stems, split_drums_flag, sevenths=True):
+def run_conversion(task_id, youtube_url, file_bytes, file_name, output_modes, audio_format, selected_stems, split_drums_flag, sevenths=False):
     workdir = Path(tempfile.mkdtemp(prefix='blunt_'))
     try:
         set_progress(task_id, percent=5, message='Förbereder...', status='running')
@@ -870,7 +884,7 @@ def upload():
     selected_stems_raw = request.form.get('selected_stems', '')
     selected_stems = [s for s in selected_stems_raw.split(',') if s in ALL_STEMS] or ALL_STEMS
     split_drums_flag = request.form.get('split_drums', 'false').lower() in ('1', 'true', 'yes')
-    sevenths_flag = request.form.get('sevenths', 'true').lower() in ('1', 'true', 'yes')
+    sevenths_flag = request.form.get('sevenths', 'false').lower() in ('1', 'true', 'yes')
 
     file_bytes = None
     file_name = None
